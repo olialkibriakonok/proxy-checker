@@ -24,57 +24,43 @@ def format_domain(domain):
         return f"http://{domain}"
     return domain
 
-def get_isp_info(ip, max_retries=1):
+def get_isp_info(ip, max_retries=3):
     """Fetch ISP information for the given IP address using ip-api.com"""
-    try:
-        
-        session = requests.Session()
-        session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'application/json'
-        })
-        
-        
-        response = session.get(
-            f"https://ipapi.co/{ip}/json/",
-            timeout=2
-        )
-        
-        if response.status_code == 200:
-            data = response.json()
-            org = data.get('org', '')
-            asn = data.get('asn', '')
-            return f"{org} ({asn})" if org and asn else org or asn or "Unknown ISP"
-        
-        
-        response = session.get(
-            f"http://ip-api.com/json/{ip}?fields=status,message,isp,org",
-            timeout=2
-        )
-        
-        if response.status_code == 200:
-            data = response.json()
-            if data.get('status') == 'success':
-                return data.get('isp', '') or data.get('org', '') or "Unknown ISP"
-        
-        return "Unknown ISP"
-            
-    except requests.RequestException:
+    for attempt in range(max_retries):
         try:
+            # Add delay between requests to comply with rate limits (45 requests per minute)
+            time.sleep(random.uniform(1.5, 2.0))
             
-            response = session.get(
-                f"https://ipwho.is/{ip}",
-                timeout=2
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'application/json'
+            }
+            
+            response = requests.get(
+                f"http://ip-api.com/json/{ip}?fields=status,message,isp",
+                headers=headers,
+                timeout=10
             )
-            if response.status_code == 200:
-                data = response.json()
-                return data.get('connection', {}).get('isp', 'Unknown ISP')
-        except:
-            pass
-        
-        return "Unknown ISP"
-    finally:
-        session.close()
+            
+            if response.status_code != 200:
+                if attempt < max_retries - 1:
+                    time.sleep(random.uniform(2.0, 3.0))
+                    continue
+                return f"Error: Status {response.status_code}"
+            
+            data = response.json()
+            if data.get('status') == 'fail':
+                return f"Error: {data.get('message', 'Unknown error')}"
+                
+            return data.get('isp', 'Unknown ISP')
+            
+        except requests.RequestException as e:
+            if attempt < max_retries - 1:
+                time.sleep(random.uniform(1.0, 2.0))
+                continue
+            return f"ISP info unavailable: {str(e)[:50]}"
+    
+    return "ISP info unavailable"
 
 def visit_target(domain, proxy, thread_id, isp_flag, max_retries=1):
     """Visit target with no retry logic for maximum speed"""
